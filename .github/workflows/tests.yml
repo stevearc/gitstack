@@ -1,0 +1,56 @@
+name: Run tests
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Running tests for ${{ matrix.python-version }} with tox
+        uses: ymyzk/run-tox-gh-actions@main
+
+  release:
+    name: release
+    if: ${{ github.ref == 'refs/heads/master' }}
+    needs:
+      - test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: google-github-actions/release-please-action@v3
+        id: release
+        with:
+          release-type: simple
+          package-name: gitstack
+      - uses: actions/checkout@v3
+      - uses: rickstaa/action-create-tag@v1
+        if: ${{ steps.release.outputs.release_created }}
+        with:
+          tag: stable
+          message: "Current stable release: ${{ steps.release.outputs.tag_name }}"
+          tag_exists_error: false
+          force_push_tag: true
+      - run: sed -i 's/"dev"/"${{ steps.release.outputs.tag_name }}"/' gitstack.py
+      - uses: actions/upload-release-asset@v1
+        if: ${{ steps.release.outputs.release_created }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          upload_url: ${{ steps.release.outputs.upload_url }}
+          asset_path: gitstack.py
+          asset_name: gitstack.py
+          asset_content_type: text/x-script.python

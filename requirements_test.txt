@@ -1,0 +1,4 @@
+black
+isort
+mypy
+pylint==3.0.3
