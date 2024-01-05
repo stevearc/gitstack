@@ -1544,10 +1544,10 @@ class FirstCommand(Command):
         navigate_stack_relative(-10000)
 
 
-class UnstackCommand(Command):
+class DeleteCommand(Command):
     @property
     def name(self) -> str:
-        return "unstack"
+        return "delete"
 
     @property
     def help(self) -> str:
@@ -1558,7 +1558,7 @@ class UnstackCommand(Command):
             "-a",
             "--all",
             action="store_true",
-            help="Unstack all branches in the current stack, not just the current one",
+            help="Delete labels for all branches in the current stack, not just the current one",
         )
 
     def invoke(self, args: argparse.Namespace) -> None:
@@ -1749,7 +1749,7 @@ def main() -> None:
         PushCommand(),
         PullRequestCommand(),
         PublishCommand(),
-        UnstackCommand(),
+        DeleteCommand(),
         PullCommand(),
         UpdateCommand(),
     ]
