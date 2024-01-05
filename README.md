@@ -16,6 +16,8 @@ git config --global alias.stack '!python ~/.local/share/gitstack.py'
 
 Now you can use these commands with `git stack`. Feel free to shorten the alias to something quicker to type.
 
+To use pull request features, you'll also need download the [Github CLI](https://cli.github.com/) and log in with `gh auth login`.
+
 ## Quick start
 
 ```bash
