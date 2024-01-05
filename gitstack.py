@@ -1715,7 +1715,7 @@ def _setup_logging(args: argparse.Namespace) -> None:
     formatter = logging.Formatter("%(levelname)s %(asctime)s %(message)s")
     handler.setFormatter(formatter)
     logging.root.addHandler(handler)
-    level = logging.getLevelName(args.log_level)
+    level = logging.getLevelName(args.log_level.upper())
     logging.root.setLevel(level)
 
 
@@ -1724,9 +1724,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=main.__doc__)
     parser.add_argument(
         "--log-level",
-        type=lambda l: logging.getLevelName(l.upper()),
-        default=logging.WARNING,
-        help="Stdout logging level (default 'warning')",
+        default="warning",
+        choices=["error", "warning", "info", "debug"],
+        help="Stderr logging level (default: %(default)s)",
     )
     parser.add_argument(
         "-v",
