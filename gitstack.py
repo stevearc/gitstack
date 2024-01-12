@@ -365,7 +365,7 @@ class git:
         if label.prev_branch is not None:
             lines.append("prev-branch: " + label.prev_branch)
         if label.prev_pr is not None:
-            lines.append("prev-pr: " + str(label.prev_pr))
+            lines.append("prev-pr: " + label.prev_pr.as_str())
         new_message = "\n".join(lines)
 
         if message == new_message:
@@ -381,9 +381,47 @@ class git:
 
 
 @dataclass
+class PullRequestLink:
+    number: Optional[int]
+    link: Optional[str]
+
+    def __init__(self, number: Optional[int], link: Optional[str]):
+        # You must specify exactly one of number or link
+        assert (number is None) != (link is None)
+        self.number = number
+        self.link = link
+
+    @classmethod
+    def from_num(cls, pr: Optional[int]) -> Optional["PullRequestLink"]:
+        if pr is None:
+            return None
+        return cls(pr, None)
+
+    @classmethod
+    def from_str(cls, s: str) -> "PullRequestLink":
+        if s.startswith("#"):
+            return cls(int(s[1:]), None)
+        elif s.isdigit():
+            return cls(int(s), None)
+        elif re.match(r"^https?://", s):
+            return cls(None, s)
+        else:
+            raise ValueError(
+                f"Invalid PR link. Expected PR number or link to another repo: {s}"
+            )
+
+    def as_str(self) -> str:
+        if self.number is not None:
+            return str(self.number)
+        else:
+            assert self.link is not None
+            return self.link
+
+
+@dataclass
 class DiffLabel:
     prev_branch: Optional[str] = None
-    prev_pr: Optional[int] = None
+    prev_pr: Optional[PullRequestLink] = None
 
     @property
     def is_empty(self) -> bool:
@@ -466,11 +504,18 @@ def make_markdown_table(data: List[Dict[str, str]], cols: List[str]) -> str:
 
 
 PR_TITLE_RE = re.compile(r"^(\[\d+/\d+\])?\s*(WIP:)?\s*(.*)$")
-PR_TABLE_LINE_RE = re.compile(r"^\|\s*(\d+)\s*\|\s*[#>](\d+)")
 
 
 class PullRequest:
-    def __init__(self, number: int, title: str, body: str, url: str, is_draft: bool):
+    def __init__(
+        self,
+        number: int,
+        title: str,
+        body: str,
+        url: str,
+        is_draft: bool,
+        repo_name: str,
+    ):
         match = PR_TITLE_RE.match(title)
         assert match
         self.number = number
@@ -479,6 +524,7 @@ class PullRequest:
         self.raw_body = body
         self.table, self.body = parse_markdown_table(body)
         self.url = url
+        self.repo_name = repo_name
         self.is_draft = is_draft
 
     def __hash__(self) -> int:
@@ -498,7 +544,7 @@ class PullRequest:
                     "view",
                     str(num_or_branch),
                     "--json",
-                    "title,body,number,url,isDraft",
+                    "title,body,number,url,isDraft,headRepository",
                 )
             )
         )
@@ -511,15 +557,30 @@ class PullRequest:
             data["body"],
             data["url"],
             data["isDraft"],
+            data["headRepository"]["name"],
         )
 
-    def parse_pr_table(self) -> List[int]:
+    def parse_prev_prs_from_table(self) -> List["PullRequest"]:
         """Return all of the PR numbers in the list"""
-        ret = []
+        ret: List["PullRequest"] = []
         for line in self.table.splitlines():
-            match = PR_TABLE_LINE_RE.match(line)
-            if match:
-                ret.append(int(match[2]))
+            # Skip lines until we reach the data rows
+            if not re.match(r"^\|\s*(\d+)\s*\|", line):
+                continue
+            pieces = line.split("|")
+            if len(pieces) < 3:
+                continue
+            pr_str = pieces[2].strip()
+            # If we have reached the current PR, return what we found so far
+            if pr_str.startswith(">"):
+                return ret
+            elif pr_str.startswith("#"):
+                ret.append(PullRequest.from_ref(int(pr_str[1:])))
+            else:
+                # Parse the URL out of a markdown link
+                match = re.match(r"^\[[^\]]*\]\((.*)\)$", line)
+                if match:
+                    ret.append(PullRequest.from_ref(match[1]))
         return ret
 
     @staticmethod
@@ -533,7 +594,7 @@ class PullRequest:
     def set_title(self, index: int, total: int, title: str) -> bool:
         new_title = self.get_title(index, total, title, self.is_draft)
         if new_title != self.raw_title:
-            gh("pr", "edit", str(self.number), "-t", new_title, capture_output=False)
+            gh("pr", "edit", self.url, "-t", new_title)
             self.title = title
             self.raw_title = new_title
             return True
@@ -543,10 +604,10 @@ class PullRequest:
     def set_draft(self, is_draft: bool) -> bool:
         if is_draft == self.is_draft:
             return False
-        args = ["pr", "ready", str(self.number)]
+        args = ["pr", "ready", self.url]
         if is_draft:
             args.append("--undo")
-        gh(*args, capture_output=False)
+        gh(*args)
         self.is_draft = is_draft
         return True
 
@@ -556,16 +617,20 @@ class PullRequest:
             title = pr.title
             if pr.is_draft:
                 title = "WIP: " + title
-            row = {"PR": f"#{pr.number}", "Title": title, "": str(i + 1)}
-            if pr.number == self.number:
+            row = {"Title": title, "": str(i + 1)}
+            if pr.url == self.url:
                 row["PR"] = f">{pr.number}"
+            elif pr.repo_name == self.repo_name:
+                row["PR"] = f"#{pr.number}"
+            else:
+                row["PR"] = f"[{pr.repo_name}#{pr.number}]({pr.url})"
             rows.append(row)
         table = make_markdown_table(rows, ["", "PR", "Title"])
         if len(stack_prs) == 1:
             table = ""
         if table != self.table:
             new_body = table + "\n" + self.body
-            gh("pr", "edit", str(self.number), "-b", new_body, capture_output=False)
+            gh("pr", "edit", self.url, "-b", new_body)
             self.raw_body = new_body
             self.table = table
             return True
@@ -596,7 +661,7 @@ class Diff:
     def get_label_for_diff(self) -> DiffLabel:
         name = None if self.branch is None else self.branch.name
         pr = self.pr.number if self.pr is not None else None
-        return DiffLabel(name, pr)
+        return DiffLabel(name, PullRequestLink.from_num(pr))
 
     def add_label(self, label: DiffLabel) -> None:
         if self.branch is None:
@@ -626,7 +691,7 @@ class Diff:
             if line.startswith("prev-branch:"):
                 label.prev_branch = line.split(":")[1].strip()
             elif line.startswith("prev-pr:"):
-                label.prev_pr = int(line.split(":")[1].strip())
+                label.prev_pr = PullRequestLink.from_str(line.split(":", 1)[1].strip())
         return label
 
     @classmethod
@@ -704,25 +769,15 @@ class Stack:
             if first_diff.label.prev_pr:
                 diff = Diff(
                     None,
-                    PullRequest.from_ref(first_diff.label.prev_pr),
+                    PullRequest.from_ref(first_diff.label.prev_pr.as_str()),
                     DiffLabel(),
                 )
                 any_new_prs = True
                 self._diffs.insert(0, diff)
             elif first_diff.pr:
-                pr_table = first_diff.pr.parse_pr_table()
-                prev_diffs = []
-                for pr_num in pr_table:
-                    if pr_num == first_diff.pr.number:
-                        break
-                    prev_diffs.append(
-                        Diff(
-                            None,
-                            PullRequest.from_ref(pr_num),
-                            DiffLabel(),
-                        )
-                    )
-                    any_new_prs = True
+                prev_prs = first_diff.pr.parse_prev_prs_from_table()
+                prev_diffs = [Diff(None, pr, DiffLabel()) for pr in prev_prs]
+                any_new_prs = bool(prev_diffs)
                 self._diffs = prev_diffs + self._diffs
 
     def create_prs(
@@ -918,7 +973,7 @@ class Repo:
                 "pr",
                 "status",
                 "--json",
-                "title,body,number,headRefName,url,isDraft",
+                "title,body,number,headRefName,url,isDraft,headRepository",
                 silence=True,
             )
         )
@@ -1181,7 +1236,7 @@ of each branch."""
             "-p",
             "--pull-request",
             metavar="PR",
-            help="Stack the first diff on top of this pull request",
+            help="Stack the first diff on top of this pull request (can be a number, or a link to a PR in another repo)",
             required=False,
         )
         parser.add_argument(
@@ -1238,10 +1293,8 @@ of each branch."""
                 num_commits += 1
 
         if pull_request is not None:
-            if pull_request.startswith("#"):
-                pull_request = pull_request[1:]
-            pr_num = int(pull_request)
-            diffs[0].add_label(DiffLabel(prev_pr=pr_num))
+            pr = PullRequestLink.from_str(pull_request)
+            diffs[0].add_label(DiffLabel(prev_pr=pr))
 
         for i, diff in enumerate(diffs):
             if i > 0:
