@@ -558,6 +558,8 @@ class PullRequest:
                 row["PR"] = f">{pr.number}"
             rows.append(row)
         table = make_markdown_table(rows, ["", "PR", "Title"])
+        if len(stack_prs) == 1:
+            table = ""
         if table != self.table:
             new_body = table + "\n" + self.body
             gh("pr", "edit", str(self.number), "-b", new_body, capture_output=False)
