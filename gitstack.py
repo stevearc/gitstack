@@ -525,7 +525,10 @@ class PullRequest:
     @staticmethod
     def get_title(index: int, total: int, title: str, is_draft: bool) -> str:
         wip = "WIP: " if is_draft else ""
-        return f"[{index}/{total}] {wip}{title}"
+        if total == 1:
+            return f"{wip}{title}"
+        else:
+            return f"[{index}/{total}] {wip}{title}"
 
     def set_title(self, index: int, total: int, title: str) -> bool:
         new_title = self.get_title(index, total, title, self.is_draft)
