@@ -5,11 +5,11 @@ import sys
 parent = os.path.dirname(__file__)
 sys.path.append(parent)
 
-from gitstack import CreateCommand, RebaseCommand, git, print_err, run
+from gitstack import CreateCommand, DiffLabel, RebaseCommand, git, print_err, run
 
 
 def add_test_file(filename: str) -> None:
-    with open(filename, "w") as f:
+    with open(filename, "w", encoding="utf-8") as f:
         f.write("This is a test file\n")
     run("git", "add", filename)
 
@@ -63,6 +63,19 @@ def run_cmd(args: argparse.Namespace) -> None:
         git.commit("Merge " + test_branch_name + "-1")
         git.switch_branch(test_branch_name + "-3")
         RebaseCommand().run(git.get_main_branch())
+    elif args.test_cmd == "reorder":
+        git.create_branch(test_branch_name + "-1")
+        add_test_file("test1.txt")
+        git.commit("Test commit 1")
+        git.create_branch(test_branch_name + "-2", "HEAD")
+        add_test_file("test2.txt")
+        git.commit("Test commit 2")
+        git.label_commit("HEAD", DiffLabel(test_branch_name + "-3"))
+        git.create_branch(test_branch_name + "-3", "HEAD")
+        add_test_file("test3.txt")
+        git.commit("Test commit 3")
+        git.label_commit("HEAD", DiffLabel(test_branch_name + "-1"))
+        CreateCommand().run()
 
     # elif args.test_cmd == "tidy_stack":
     #     git.create_branch(test_branch_name)
@@ -111,6 +124,7 @@ def main() -> None:
             "rebase_cleanup",
             "merge_squash",
             "create",
+            "reorder",
             # "tidy_stack",
             # "tidy_rebase",
             # "old_stack",
