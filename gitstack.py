@@ -1682,9 +1682,14 @@ class PullCommand(Command):
         target = branch
 
         git.fetch()
+        all_branches = git.list_branches()
 
         while branch:
-            git.switch_branch(branch)
+            if branch not in all_branches:
+                git.create_branch(branch, "HEAD")
+            else:
+                git.switch_branch(branch)
+
             if force:
                 git.reset("origin/" + branch, hard=True)
             else:
