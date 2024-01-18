@@ -1723,8 +1723,9 @@ class UpdateCommand(Command):
 
     def run(self, version: str = "latest") -> None:
         if __version__ == "dev":
-            print_err("Current version is 'dev'. Cannot update dev version.")
-            sys.exit(1)
+            msg = "gitstack is currently a development version. Are you sure you want to update? [y/n] "
+            if input(msg).lower() != "y":
+                return
 
         if version == "latest":
             contents = urllib.request.urlopen(
@@ -1736,10 +1737,15 @@ class UpdateCommand(Command):
             if version[1:] == __version__:
                 print("Already up to date")
                 return
-            if input(f"Update to {version}?").lower() != "y":
+            if input(f"Update to {version}? [y/n] ").lower() != "y":
                 return
 
-        url = f"https://github.com/stevearc/gitstack/releases/download/{version}/gitstack.py"
+        if version == "dev":
+            url = (
+                "https://raw.githubusercontent.com/stevearc/gitstack/master/gitstack.py"
+            )
+        else:
+            url = f"https://github.com/stevearc/gitstack/releases/download/{version}/gitstack.py"
         (new_file, _) = urllib.request.urlretrieve(url)
         os.unlink(__file__)
         shutil.move(new_file, __file__)
