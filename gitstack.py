@@ -10,7 +10,7 @@ import sys
 import urllib.request
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from functools import cache, total_ordering
+from functools import lru_cache, total_ordering
 from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Union
 
 log = logging.getLogger(__name__)
@@ -294,8 +294,8 @@ class git:
     def delete_remote_branch(branch: str) -> None:
         run("git", "push", "origin", "--delete", branch)
 
-    @cache
     @staticmethod
+    @lru_cache(maxsize=None)
     def get_main_branch() -> str:
         proc = subprocess.run(
             ["git", "symbolic-ref", "refs/remotes/origin/HEAD"],
