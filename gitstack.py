@@ -1000,12 +1000,13 @@ class Repo:
 
         while diffs:
             diff = None
+            # Find a diff with no previous branch
             for d in diffs.values():
                 if d.label.prev_branch not in diffs or d.label.prev_branch is None:
                     diff = d
                     break
             if diff is None:
-                diff = diffs.pop(next(iter(diffs)))
+                diff = diffs[next(iter(diffs))]
             assert diff.branch is not None
             del diffs[diff.branch.name]
 
@@ -1013,8 +1014,12 @@ class Repo:
             while diff.branch.name in diffs_by_prev:
                 next_diff = diffs_by_prev.pop(diff.branch.name)
                 assert next_diff.branch is not None
-                del diffs[next_diff.branch.name]
-                diff_list.append(next_diff)
+                if next_diff.branch.name in diffs:
+                    del diffs[next_diff.branch.name]
+                    diff_list.append(next_diff)
+                else:
+                    # There is probably a cycle somewhere
+                    break
                 diff = next_diff
                 assert diff.branch is not None
 
