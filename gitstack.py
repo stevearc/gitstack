@@ -821,14 +821,23 @@ class Stack:
             rel = diff.branch.name
         return created
 
-    def update_prs(self) -> List[Diff]:
+    def update_prs(self, publish: bool = False) -> List[Diff]:
         total = len(self._diffs)
         updated = set()
 
+        # First update the titles and draft status
         for i, diff in enumerate(self._diffs):
             pr = diff.pr
-            if pr is not None and pr.set_title(i + 1, total, pr.title):
+            if pr is None:
+                continue
+            # publish will only take effect when True. It will not unpublish a PR
+            if publish and pr.set_draft(False):
                 updated.add(diff)
+            if pr.set_title(i + 1, total, pr.title):
+                updated.add(diff)
+
+        # Now we have the authoritative list of PRs and titles, so we can update the
+        # markdown tables
         pull_requests = [diff.pr for diff in self._diffs if diff.pr is not None]
         for diff in self._diffs:
             pr = diff.pr
@@ -1437,7 +1446,7 @@ class PullRequestCommand(Command):
             "-p",
             "--publish",
             action="store_true",
-            help="Created pull requests will not be in draft mode",
+            help="Pull requests will not be in draft mode",
         )
 
     def invoke(self, args: argparse.Namespace) -> None:
@@ -1465,7 +1474,7 @@ class PullRequestCommand(Command):
         repo.load_prs()
         before_branch = None if all_branches else git.current_branch()
         created = stack.create_prs(before_branch, publish=publish)
-        updated = stack.update_prs()
+        updated = stack.update_prs(publish=publish)
         for diff in stack._diffs:
             pr = diff.pr
             if pr is not None:
