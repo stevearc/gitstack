@@ -23,8 +23,7 @@ To use pull request features, you'll also need download the [Github CLI](https:/
 ```bash
 # create a branch and make commits as normal
 git stack create --split  # create a new branch for each commit
-git stack pr              # create pull requests for each branch
-git stack publish         # publish the pull requests
+git stack pr -p           # create pull requests for each branch
 # go to github and add summary, reviewers, test plan, etc
 
 # If changes are requested:
