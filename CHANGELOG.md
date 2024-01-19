@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/stevearc/gitstack/compare/v1.2.0...v1.2.1) (2024-01-19)
+
+
+### Bug Fixes
+
+* the pr command can publish existing PRs ([483afb2](https://github.com/stevearc/gitstack/commit/483afb25c14d4541cb57cabc49f14ba5985f1fe6))
+
 ## [1.2.0](https://github.com/stevearc/gitstack/compare/v1.1.0...v1.2.0) (2024-01-19)
 
 
