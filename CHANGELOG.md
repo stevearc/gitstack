@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.2.0](https://github.com/stevearc/gitstack/compare/v1.1.0...v1.2.0) (2024-01-19)
+
+
+### Features
+
+* add support for python 3.8 ([12b8463](https://github.com/stevearc/gitstack/commit/12b8463c8d286cafa604468b16a5e966eb180579))
+
+
+### Bug Fixes
+
+* allow update command to update or install dev version ([47d3d0e](https://github.com/stevearc/gitstack/commit/47d3d0e2fac288b087a0617197851b6a481d1460))
+* pull command will create missing local branches ([9c90da8](https://github.com/stevearc/gitstack/commit/9c90da8a07f6214586a65f5a8aa6cc82a8d71364))
+* **pull:** pull all branches in stack ([113b682](https://github.com/stevearc/gitstack/commit/113b6826a38a1054d355b63d4300817b604b8aae))
+* stack calculation when master lags origin ([dca5cf5](https://github.com/stevearc/gitstack/commit/dca5cf58db75c9a847b66c795502ee5240cbfa65))
+
 ## [1.1.0](https://github.com/stevearc/gitstack/compare/v1.0.0...v1.1.0) (2024-01-18)
 
 
