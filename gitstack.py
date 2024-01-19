@@ -339,7 +339,7 @@ class git:
     @staticmethod
     def merge_base(branch: str, ref2: Optional[str] = None) -> str:
         if ref2 is None:
-            ref2 = git.get_main_branch()
+            ref2 = git.get_origin_main()
         return run("git", "merge-base", branch, ref2)
 
     @staticmethod
