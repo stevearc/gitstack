@@ -1486,33 +1486,19 @@ class PullRequestCommand(Command):
                     print("Unchanged", pr.url)
 
 
-class PublishCommand(Command):
+class UnpublishCommand(Command):
     @property
     def name(self) -> str:
-        return "publish"
+        return "unpublish"
 
     @property
     def help(self) -> str:
-        return "Publish pull requests (remove draft status)"
-
-    def add_args(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument(
-            "-a",
-            "--all",
-            action="store_true",
-            help="Publish pull requests for all branches, not just the earlier ones",
-        )
-        parser.add_argument(
-            "-u",
-            "--undo",
-            action="store_true",
-            help="Convert pull request back to draft mode (current branch only)",
-        )
+        return "Unpublish a pull request (mark as draft)"
 
     def invoke(self, args: argparse.Namespace) -> None:
-        self.run(all_branches=args.all, undo=args.undo)
+        self.run()
 
-    def run(self, all_branches: bool = False, undo: bool = False) -> None:
+    def run(self) -> None:
         exit_if_no_gh()
         repo = Repo.load()
         repo.load_prs()
@@ -1520,32 +1506,24 @@ class PublishCommand(Command):
         if stack is None:
             print_err("No stack found")
             sys.exit(1)
+        diff = stack.get_diff_for_ref()
+        if diff is None:
+            print_err("No stack found")
+            sys.exit(1)
+        pr = diff.pr
+        if pr is None:
+            print_err("No pull request found")
+            sys.exit(1)
+
         unpublished: Set[Diff] = set()
-        published: Set[Diff] = set()
         updated: Set[Diff] = set()
-        if undo:
-            diff = stack.get_diff_for_ref()
-            assert diff is not None
-            pr = diff.pr
-            if not pr:
-                print_err("No pull request found")
-                sys.exit(1)
-            if pr.set_draft(True):
-                unpublished.add(diff)
-            updated.update(stack.update_prs())
-        else:
-            before_branch = None if all_branches else git.current_branch()
-            for diff in stack.local_diffs(before_branch):
-                pr = diff.pr
-                if pr and pr.set_draft(False):
-                    published.add(diff)
-            updated.update(stack.update_prs())
+        if pr.set_draft(True):
+            unpublished.add(diff)
+        updated.update(stack.update_prs())
         for diff in stack._diffs:
             pr = diff.pr
             if pr:
-                if diff in published:
-                    print("Published  ", pr.url)
-                elif diff in unpublished:
+                if diff in unpublished:
                     print("Unpublished", pr.url)
                 elif diff in updated:
                     print("Updated    ", pr.url)
@@ -1858,7 +1836,7 @@ def main() -> None:
         FirstCommand(),
         PushCommand(),
         PullRequestCommand(),
-        PublishCommand(),
+        UnpublishCommand(),
         DeleteCommand(),
         PullCommand(),
         UpdateCommand(),
