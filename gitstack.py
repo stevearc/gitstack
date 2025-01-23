@@ -581,7 +581,7 @@ class PullRequest:
                 ret.append(PullRequest.from_ref(int(pr_str[1:])))
             else:
                 # Parse the URL out of a markdown link
-                match = re.match(r"^\[[^\]]*\]\((.*)\)$", line)
+                match = re.match(r"^\[[^\]]*\]\((.*)\)$", pr_str)
                 if match:
                     ret.append(PullRequest.from_ref(match[1]))
         return ret
