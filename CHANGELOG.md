@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.2](https://github.com/stevearc/gitstack/compare/v1.2.1...v1.2.2) (2025-02-07)
+
+
+### Bug Fixes
+
+* find previous PRs in other repos via table parsing ([103c703](https://github.com/stevearc/gitstack/commit/103c7036104ad5e8dac0e55e444cd7503e5d8b81))
+
 ## [1.2.1](https://github.com/stevearc/gitstack/compare/v1.2.0...v1.2.1) (2024-01-19)
 
 
