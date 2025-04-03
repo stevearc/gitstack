@@ -312,7 +312,7 @@ class git:
     @staticmethod
     def is_main_branch(branch: str) -> bool:
         # HACK to also handle master-passing-tests
-        return branch.startswith(git.get_main_branch())
+        return strip_remote(branch).startswith(git.get_main_branch())
 
     @staticmethod
     def get_origin_main() -> str:
@@ -928,7 +928,11 @@ class Stack:
 
         if target is not None:
             git.rebase(target, branches[0].name)
-            if not git.is_main_branch(target):
+            rebase_included_self = git.get_current_ref() == git.rev_parse(target)
+            # Update our label to point to the branch we rebased on top of UNLESS the
+            # rebase swallowed the current branch (because all commits were already in
+            # the target) OR the target is main/master/etc
+            if not git.is_main_branch(target) and not rebase_included_self:
                 diff = next((d for d in self._diffs if d.branch == branches[0]), None)
                 assert diff is not None
                 diff.add_label(DiffLabel(prev_branch=target))
