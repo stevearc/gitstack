@@ -509,6 +509,34 @@ def make_markdown_table(data: List[Dict[str, str]], cols: List[str]) -> str:
 PR_TITLE_RE = re.compile(r"^(\[\d+/\d+\])?\s*(WIP:)?\s*(.*)$")
 
 
+@dataclass
+class PendingGHEdit:
+    title: Optional[str] = None
+    body: Optional[str] = None
+    base_branch: Optional[str] = None
+
+    @property
+    def is_dirty(self) -> bool:
+        return (
+            self.title is not None
+            or self.body is not None
+            or self.base_branch is not None
+        )
+
+    def flush(self, url: str) -> None:
+        args = ["pr", "edit", url]
+        if self.title is not None:
+            args.extend(["-t", self.title])
+        if self.body is not None:
+            args.extend(["-b", self.body])
+        if self.base_branch is not None:
+            args.extend(["-B", self.base_branch])
+        gh(*args)
+        self.title = None
+        self.body = None
+        self.base_branch = None
+
+
 class PullRequest:
     def __init__(
         self,
@@ -518,6 +546,7 @@ class PullRequest:
         url: str,
         is_draft: bool,
         repo_name: str,
+        target_branch: str,
     ):
         match = PR_TITLE_RE.match(title)
         assert match
@@ -529,6 +558,8 @@ class PullRequest:
         self.url = url
         self.repo_name = repo_name
         self.is_draft = is_draft
+        self.target_branch = target_branch
+        self._pending_gh_edit = PendingGHEdit()
 
     def __hash__(self) -> int:
         return self.number
@@ -537,6 +568,10 @@ class PullRequest:
         if not isinstance(other, PullRequest):
             return False
         return self.number == other.number
+
+    def flush(self) -> None:
+        if self._pending_gh_edit.is_dirty:
+            self._pending_gh_edit.flush(self.url)
 
     @classmethod
     def from_ref(cls, num_or_branch: Union[str, int]) -> "PullRequest":
@@ -547,7 +582,7 @@ class PullRequest:
                     "view",
                     str(num_or_branch),
                     "--json",
-                    "title,body,number,url,isDraft,headRepository",
+                    "title,body,number,url,isDraft,headRepository,baseRefName",
                 )
             )
         )
@@ -561,6 +596,7 @@ class PullRequest:
             data["url"],
             data["isDraft"],
             data["headRepository"]["name"],
+            data["baseRefName"],
         )
 
     def parse_prev_prs_from_table(self) -> List["PullRequest"]:
@@ -597,9 +633,17 @@ class PullRequest:
     def set_title(self, index: int, total: int, title: str) -> bool:
         new_title = self.get_title(index, total, title, self.is_draft)
         if new_title != self.raw_title:
-            gh("pr", "edit", self.url, "-t", new_title)
+            self._pending_gh_edit.title = new_title
             self.title = title
             self.raw_title = new_title
+            return True
+        else:
+            return False
+
+    def set_target_branch(self, target_branch: str) -> bool:
+        if target_branch != self.target_branch:
+            self._pending_gh_edit.base_branch = target_branch
+            self.target_branch = target_branch
             return True
         else:
             return False
@@ -633,7 +677,7 @@ class PullRequest:
             table = ""
         if table != self.table:
             new_body = table + "\n" + self.body
-            gh("pr", "edit", self.url, "-b", new_body)
+            self._pending_gh_edit.body = new_body
             self.raw_body = new_body
             self.table = table
             return True
@@ -824,17 +868,21 @@ class Stack:
     def update_prs(self, publish: bool = False) -> List[Diff]:
         total = len(self._diffs)
         updated = set()
+        rel = git.get_main_branch()
 
         # First update the titles and draft status
         for i, diff in enumerate(self._diffs):
             pr = diff.pr
-            if pr is None:
-                continue
-            # publish will only take effect when True. It will not unpublish a PR
-            if publish and pr.set_draft(False):
-                updated.add(diff)
-            if pr.set_title(i + 1, total, pr.title):
-                updated.add(diff)
+            if pr is not None:
+                # publish will only take effect when True. It will not unpublish a PR
+                if publish and pr.set_draft(False):
+                    updated.add(diff)
+                if pr.set_title(i + 1, total, pr.title):
+                    updated.add(diff)
+                if pr.set_target_branch(rel):
+                    updated.add(diff)
+            if diff.branch is not None:
+                rel = diff.branch.name
 
         # Now we have the authoritative list of PRs and titles, so we can update the
         # markdown tables
@@ -843,6 +891,11 @@ class Stack:
             pr = diff.pr
             if pr is not None and pr.set_table(pull_requests):
                 updated.add(diff)
+
+        for diff in updated:
+            pr = diff.pr
+            if pr is not None:
+                pr.flush()
         return list(updated)
 
     def get_diff_for_ref(self, ref: Optional[str] = None) -> Optional[Diff]:
@@ -985,7 +1038,7 @@ class Repo:
                 "pr",
                 "status",
                 "--json",
-                "title,body,number,headRefName,url,isDraft,headRepository",
+                "title,body,number,headRefName,url,isDraft,headRepository,baseRefName",
                 silence=True,
             )
         )
