@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.0](https://github.com/stevearc/gitstack/compare/v1.2.1...v1.3.0) (2025-04-03)
+
+
+### Features
+
+* transparently update PR target branch, and batch update requests ([feaa75a](https://github.com/stevearc/gitstack/commit/feaa75a5604bd60bbfd49fb8a4c1e419d1a83eb3))
+
+
+### Bug Fixes
+
+* find previous PRs in other repos via table parsing ([103c703](https://github.com/stevearc/gitstack/commit/103c7036104ad5e8dac0e55e444cd7503e5d8b81))
+* stack rebase onto origin/master ([be4ba8c](https://github.com/stevearc/gitstack/commit/be4ba8ce7a768226c1329b267aefb1989a30a499))
+
 ## [1.2.1](https://github.com/stevearc/gitstack/compare/v1.2.0...v1.2.1) (2024-01-19)
 
 
