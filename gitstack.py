@@ -1462,7 +1462,7 @@ class PushCommand(Command):
             help="Push all branches, not just the earlier ones",
         )
         parser.add_argument(
-            "-f", "--force", action="store_true", help="push with force-with-lease"
+            "-f", "--force", action="store_true", help="Push with force-with-lease"
         )
 
     def invoke(self, args: argparse.Namespace) -> None:
@@ -1505,11 +1505,34 @@ class PullRequestCommand(Command):
             action="store_true",
             help="Pull requests will not be in draft mode",
         )
+        parser.add_argument(
+            "-n",
+            "--no-push",
+            action="store_true",
+            help="Update the pull_requests without pushing branches first",
+        )
+        parser.add_argument(
+            "-f",
+            "--force",
+            action="store_true",
+            help="Push with force-with-lease",
+        )
 
     def invoke(self, args: argparse.Namespace) -> None:
-        self.run(all_branches=args.all, publish=args.publish)
+        self.run(
+            all_branches=args.all,
+            publish=args.publish,
+            push=not args.no_push,
+            force=args.force,
+        )
 
-    def run(self, all_branches: bool = False, publish: bool = False) -> None:
+    def run(
+        self,
+        all_branches: bool = False,
+        publish: bool = False,
+        push: bool = True,
+        force: bool = False,
+    ) -> None:
         exit_if_no_gh()
         repo = Repo.load()
 
@@ -1520,13 +1543,14 @@ class PullRequestCommand(Command):
             sys.exit(1)
         cur = git.current_branch()
         before_branch = None if all_branches else cur
-        for branch in stack.branches(before_branch):
-            if git.rev_parse(branch.name) == git.rev_parse("origin/" + branch.name):
-                continue
-            git.switch_branch(branch.name)
-            git.push(branch.name)
-        if cur is not None:
-            git.switch_branch(cur)
+        if push:
+            for branch in stack.branches(before_branch):
+                if git.rev_parse(branch.name) == git.rev_parse("origin/" + branch.name):
+                    continue
+                git.switch_branch(branch.name)
+                git.push(branch.name, force=force)
+            if cur is not None:
+                git.switch_branch(cur)
 
         repo.load_prs()
         before_branch = None if all_branches else git.current_branch()
