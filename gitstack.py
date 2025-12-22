@@ -1535,27 +1535,39 @@ class PullRequestCommand(Command):
     ) -> None:
         exit_if_no_gh()
         repo = Repo.load()
-
-        # First push all branches
         stack = repo.get_stack_for_ref()
         if stack is None:
             print_err("No stack found")
             sys.exit(1)
+
+        # First push all new branches
         cur = git.current_branch()
         before_branch = None if all_branches else cur
+        need_push = []
         if push:
             for branch in stack.branches(before_branch):
-                if git.rev_parse(branch.name) == git.rev_parse("origin/" + branch.name):
-                    continue
-                git.switch_branch(branch.name)
-                git.push(branch.name, force=force)
+                if git.rev_parse("origin/" + branch.name) is not None:
+                    need_push.append(branch)
+                else:
+                    git.switch_branch(branch.name)
+                    git.push(branch.name)
             if cur is not None:
                 git.switch_branch(cur)
 
+        # Update the PRs
         repo.load_prs()
-        before_branch = None if all_branches else git.current_branch()
         created = stack.create_prs(before_branch, publish=publish)
         updated = stack.update_prs(publish=publish)
+
+        # Lastly, push all branches we didn't push before
+        for branch in need_push:
+            if git.rev_parse(branch.name) != git.rev_parse("origin/" + branch.name):
+                git.switch_branch(branch.name)
+                git.push(branch.name, force=force)
+        if cur is not None:
+            git.switch_branch(cur)
+
+        # print the results
         for diff in stack._diffs:
             pr = diff.pr
             if pr is not None:
