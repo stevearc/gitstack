@@ -842,7 +842,7 @@ class Stack:
                 commit_line = (
                     git.get_commit_message(diff.branch.name).splitlines()[0].strip()
                 )
-                title = PullRequest.get_title(i + 1, total, commit_line, True)
+                title = PullRequest.get_title(i + 1, total, commit_line, not publish)
                 args = [
                     "pr",
                     "create",
