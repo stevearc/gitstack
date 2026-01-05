@@ -808,7 +808,7 @@ class Stack:
                 if pr is not None:
                     diff.pr = pr
 
-        # gh pr status doesn't show closed PRs, so we need to fetch them separately
+        # gh pr list doesn't show closed PRs, so we need to fetch them separately
         any_new_prs = True
         while any_new_prs:
             any_new_prs = False
@@ -1040,14 +1040,16 @@ class Repo:
         prs = json.loads(
             gh(
                 "pr",
-                "status",
+                "list",
+                "--author",
+                "@me",
                 "--json",
                 "title,body,number,headRefName,url,isDraft,headRepository,baseRefName",
                 silence=True,
             )
         )
         pr_map: Dict[str, PullRequest] = {
-            pr["headRefName"]: PullRequest.from_json(pr) for pr in prs["createdBy"]
+            pr["headRefName"]: PullRequest.from_json(pr) for pr in prs
         }
         for stack in self.stacks:
             stack.hydrate_prs(pr_map)
