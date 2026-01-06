@@ -14,6 +14,7 @@ from functools import lru_cache, total_ordering
 from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Union
 
 log = logging.getLogger(__name__)
+sentinel = object()
 
 __version__ = "dev"
 # in github release action, it will set this to the tag name which has a leading v
@@ -305,8 +306,8 @@ class git:
         run("git", "rebase", new_root, tip)
 
     @staticmethod
-    def delete_remote_branch(branch: str) -> None:
-        run("git", "push", "origin", "--delete", branch)
+    def delete_remote_branch(branch: str, allow_failure: bool = True) -> None:
+        run("git", "push", "origin", "--delete", branch, check=not allow_failure)
 
     @staticmethod
     @lru_cache(maxsize=None)
@@ -446,6 +447,8 @@ class DiffLabel:
 class Branch:
     name: str
     num_commits: int
+    _commits: Optional[List[Commit]] = None
+    _contained_branches: Optional[List[str]] = None
 
     @property
     def root(self) -> str:
@@ -453,6 +456,22 @@ class Branch:
             return self.name
         else:
             return self.name + "~" + str(self.num_commits - 1)
+
+    @property
+    def commits(self) -> List[Commit]:
+        if self._commits is None:
+            self._commits = git.log_range_detail(
+                self.name + "~" + str(self.num_commits), self.name
+            )
+        return self._commits
+
+    @property
+    def contained_branches(self) -> List[str]:
+        if self._contained_branches is None:
+            self._contained_branches = list(
+                git.get_containing_branches(self.name).keys()
+            )
+        return self._contained_branches
 
     @property
     def tip(self) -> str:
@@ -557,6 +576,7 @@ class PullRequest:
         url: str,
         is_draft: bool,
         repo_name: str,
+        branch: str,
         target_branch: str,
         state: str,
     ):
@@ -570,6 +590,7 @@ class PullRequest:
         self.url = url
         self.repo_name = repo_name
         self.is_draft = is_draft
+        self.branch = branch
         self.target_branch = target_branch
         self.state = state  # OPEN|CLOSED|MERGED
         self._pending_gh_edit = PendingGHEdit()
@@ -618,7 +639,7 @@ class PullRequest:
                     "view",
                     str(num_or_branch),
                     "--json",
-                    "title,body,number,url,isDraft,headRepository,baseRefName,state",
+                    "title,body,number,headRefName,url,isDraft,headRepository,baseRefName,state",
                 )
             )
         )
@@ -632,6 +653,7 @@ class PullRequest:
             data["url"],
             data["isDraft"],
             data["headRepository"]["name"],
+            data["headRefName"],
             data["baseRefName"],
             data["state"],
         )
@@ -824,6 +846,7 @@ class Diff:
 
 class Stack:
     def __init__(self, diffs: List[Diff]):
+        self._merge_base: Any = sentinel
         self._diffs = diffs
 
     def local_diffs(self, before_branch: Optional[str] = None) -> List[Diff]:
@@ -837,6 +860,17 @@ class Stack:
         return [
             d.branch for d in self.local_diffs(before_branch) if d.branch is not None
         ]
+
+    @property
+    def merge_base(self) -> Optional[Commit]:
+        if self._merge_base is not sentinel:
+            return self._merge_base
+        for diff in self._diffs:
+            if diff.branch is not None:
+                self._merge_base = git.log_detail(git.merge_base(diff.branch.name))
+                return self._merge_base
+        self._merge_base = None
+        return None
 
     def hydrate_prs(self, pr_map: Dict[str, PullRequest]) -> None:
         for diff in self._diffs:
@@ -1049,13 +1083,86 @@ class Stack:
             pieces.append(str(diff))
         print(" -> ".join(pieces))
 
-    def print_branches(self) -> None:
-        cur = git.current_branch()
-        for branch in reversed(self.branches()):
-            if branch.name == cur:
-                print("*", branch.name)
-            else:
-                print(" ", branch.name)
+    def print_branches(
+        self,
+        show_all_commits=False,
+        show_graph_fork=False,
+        hide_merge_base=False,
+        include_merged_diffs=False,
+    ) -> None:
+        lines: List[str] = []
+        self.render_branches(
+            lines,
+            show_all_commits=show_all_commits,
+            show_graph_fork=show_graph_fork,
+            hide_merge_base=hide_merge_base,
+            include_merged_diffs=include_merged_diffs,
+        )
+        lines.reverse()
+        for line in lines:
+            print(line)
+
+    def render_branches(
+        self,
+        lines: List[str],
+        show_all_commits=False,
+        show_graph_fork=False,
+        hide_merge_base=False,
+        include_merged_diffs=False,
+    ) -> None:
+        if include_merged_diffs:
+            diffs = self._diffs
+        else:
+            diffs = self.local_diffs()
+        merge_base = self.merge_base
+        if not diffs or not merge_base:
+            return
+        if show_graph_fork:
+            indent = Color.red("| ")
+            fork = Color.red("|/")
+        else:
+            indent = "  "
+            fork = Color.red(" /")
+
+        if not hide_merge_base:
+            lines.append("* " + merge_base.format())
+        lines.append(fork)
+
+        last_branch = None
+        num_lines = len(lines)
+        for branch_num, diff in enumerate(diffs):
+            branch = diff.branch
+            if branch is None:
+                assert diff.pr is not None
+                lines.append(
+                    f"{indent}- {diff.pr.status_colored_number} {diff.pr.title}"
+                )
+                continue
+
+            labeled = any(c.labeled for c in branch.commits)
+            needs_restack = False
+            if last_branch is not None:
+                needs_restack = branch.name not in last_branch.contained_branches
+
+            star = "*"
+            if needs_restack:
+                star = "x"
+            elif branch_num > 0 and not labeled:
+                star = "?"
+
+            if show_all_commits:
+                for commit in branch.commits[:-1]:
+                    lines.append(f"{indent}{star} {commit.format()}")
+            if branch.commits:
+                lines.append(f"{indent}{star} {branch.commits[-1].format(diff.pr)}")
+            elif diff.pr is not None:
+                lines.append(
+                    f"{indent}{star} {diff.pr.status_colored_number} {diff.pr.title}"
+                )
+            last_branch = branch
+        # If we didn't add any commits to the lines, we should remove the fork we added
+        if len(lines) == num_lines:
+            lines.pop()
 
     def contains_ref(self, ref: Optional[str] = None) -> bool:
         return self.get_diff_for_ref(ref) is not None
@@ -1073,8 +1180,8 @@ class Repo:
                 return stack
         return None
 
-    def load_prs(self) -> None:
-        prs = json.loads(
+    def load_prs(self) -> List[PullRequest]:
+        raw = json.loads(
             gh(
                 "pr",
                 "list",
@@ -1089,11 +1196,16 @@ class Repo:
                 silence=True,
             )
         )
-        pr_map: Dict[str, PullRequest] = {
-            pr["headRefName"]: PullRequest.from_json(pr) for pr in prs
-        }
+        prs = [PullRequest.from_json(data) for data in raw]
+        pr_map: Dict[str, PullRequest] = {}
+        for pr in prs:
+            if pr.is_closed:
+                pr_map.setdefault(pr.branch, pr)
+            else:
+                pr_map[pr.branch] = pr
         for stack in self.stacks:
             stack.hydrate_prs(pr_map)
+        return prs
 
     @classmethod
     def load(cls) -> "Repo":
@@ -1190,7 +1302,6 @@ class TmpLocalInfo:
         branches = stack.branches()
         if not branches:
             return None
-        merge_base = git.merge_base(branches[0].name)
         commits: Dict[str, List[Commit]] = {}
         contains: Dict[str, List[str]] = {}
         for branch in branches:
@@ -1201,8 +1312,9 @@ class TmpLocalInfo:
                 git.get_containing_branches(branch.name).keys()
             )
 
-        mbc = git.log_detail(merge_base)
-        return cls(stack, mbc, commits, contains)
+        merge_base = stack.merge_base
+        assert merge_base is not None
+        return cls(stack, merge_base, commits, contains)
 
     def branches(self) -> Iterator[BranchInfo]:
         for diff in self.stack.local_diffs():
@@ -1287,7 +1399,8 @@ class ListCommand(Command):
 The commits are displayed as a git log graph, with the following icons:
   * normal commit
   ? branch is stacked, but missing a label (use "git stack create" to add it)
-  x needs to be restacked"""
+  x needs to be restacked
+  - branch has been merged"""
 
     def add_args(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
@@ -1303,50 +1416,26 @@ The commits are displayed as a git log graph, with the following icons:
     def run(self, show_all_commits: bool = False) -> None:
         repo = Repo.load()
         repo.load_prs()
-        local_info: List[TmpLocalInfo] = []
-        for stack in repo.stacks:
-            info = TmpLocalInfo.from_stack(stack)
-            if info:
-                local_info.append(info)
 
         master = git.log_detail(git.get_main_branch())
-        local_info.sort()
-        merge_bases = {info.merge_base for info in local_info}
+        merge_bases = {
+            stack.merge_base for stack in repo.stacks if stack.merge_base is not None
+        }
         merge_bases.add(master)
 
         lines = []
         for i, commit in enumerate(sorted(merge_bases)):
             lines.append("* " + commit.format())
-            commit_infos = [info for info in local_info if info.merge_base == commit]
-            for j, info in enumerate(commit_infos):
-                is_last = i == len(merge_bases) - 1 and j == len(commit_infos) - 1
-                if is_last:
-                    indent = "  "
-                    fork = Color.red(" /")
-                else:
-                    indent = Color.red("| ")
-                    fork = Color.red("|/")
-
-                lines.append(fork)
-                needs_restack = False
-                last_branch = None
-                for branch_num, branch in enumerate(info.branches()):
-                    labeled = any(c.labeled for c in branch.commits)
-                    if last_branch is not None and not needs_restack:
-                        needs_restack = branch.name not in last_branch.contains
-
-                    star = "*"
-                    if needs_restack:
-                        star = "x"
-                    elif branch_num > 0 and not labeled:
-                        star = "?"
-
-                    if show_all_commits:
-                        for commit in branch.commits[:-1]:
-                            lines.append(f"{indent}{star} {commit.format()}")
-                    lines.append(f"{indent}{star} {branch.tip.format(branch.pr)}")
-                    last_branch = branch
-
+            stacks = [stack for stack in repo.stacks if stack.merge_base == commit]
+            for j, stack in enumerate(stacks):
+                is_last = i == len(merge_bases) - 1 and j == len(stacks) - 1
+                stack.render_branches(
+                    lines,
+                    show_all_commits=show_all_commits,
+                    show_graph_fork=not is_last,
+                    hide_merge_base=True,
+                    include_merged_diffs=True,
+                )
         lines.reverse()
         for line in lines:
             print(line)
@@ -1448,6 +1537,94 @@ of each branch."""
         elif pull_request is None and len(stack.branches()) == 1:
             print_err("Only one branch detected. Did you mean to use --split?")
         return stack
+
+
+class CleanCommand(Command):
+    @property
+    def name(self) -> str:
+        return "clean"
+
+    @property
+    def help(self) -> str:
+        return "Delete local and remote branches that have been merged"
+
+    def add_args(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "-r",
+            "--restack",
+            action="store_true",
+            help="Rebase and restack the affected stacks",
+            required=False,
+        )
+        parser.add_argument(
+            "-d",
+            "--dry-run",
+            action="store_true",
+            help="Print the branches that would be deleted",
+            required=False,
+        )
+
+    def invoke(self, args: argparse.Namespace) -> None:
+        self.run(restack=args.restack, dry_run=args.dry_run)
+
+    def run(self, restack: bool = False, dry_run: bool = False) -> None:
+        git.exit_if_dirty()
+        repo = Repo.load()
+        prs = repo.load_prs()
+        active_branches = set()
+        for pr in prs:
+            if pr.is_open:
+                active_branches.add(pr.branch)
+                active_branches.add(pr.target_branch)
+
+        # First find the local branches that will need to be deleted and the stacks that
+        # will need to be rebased
+        current_branch = git.current_branch()
+        modified_stacks = set()
+        to_delete = set()
+        for stack in repo.stacks:
+            for diff in stack.local_diffs():
+                branch = diff.branch
+                assert branch is not None
+                if diff.pr is not None and diff.pr.is_merged:
+                    to_delete.add(branch.name)
+                    diff.branch = None
+                    modified_stacks.add(stack)
+
+        # Then find the remote branches that can be deleted
+        for pr in prs:
+            if not pr.is_open:
+                remote_branch = "origin/" + pr.branch
+                if (
+                    pr.branch not in active_branches
+                    and git.rev_parse(remote_branch) is not None
+                ):
+                    to_delete.add(remote_branch)
+
+        # We can't delete the current branch, so switch to master
+        if current_branch in to_delete:
+            current_branch = git.get_main_branch()
+            git.switch_branch(current_branch)
+
+        for b in sorted(to_delete):
+            if dry_run:
+                print("Would delete branch", b)
+            elif b.startswith("origin/"):
+                git.delete_remote_branch(b[7:])
+            else:
+                git.delete_branch(b, force=True)
+
+        if not to_delete:
+            print("No branches to delete")
+
+        if restack and modified_stacks:
+            git.fetch()
+            origin_main = git.get_origin_main()
+            for stack in modified_stacks:
+                stack.rebase(origin_main)
+
+        if current_branch is not None:
+            git.switch_branch(current_branch)
 
 
 class RestackCommand(Command):
@@ -1970,6 +2147,7 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="cmd", required=False)
     stack_commands: List[Command] = [
         ListCommand(),
+        CleanCommand(),
         CreateCommand(),
         RestackCommand(),
         RebaseCommand(),
