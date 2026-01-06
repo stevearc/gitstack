@@ -84,6 +84,7 @@ def exit_if_no_gh():
 
 class Color:
     BLUE = "\033[94m"
+    PURPLE = "\033[95m"
     CYAN = "\033[96m"
     GREEN = "\033[92m"
     YELLOW = "\033[93m"
@@ -104,6 +105,10 @@ class Color:
         return cls.BLUE + text + cls.ENDC
 
     @classmethod
+    def purple(cls, text: str) -> str:
+        return cls.PURPLE + text + cls.ENDC
+
+    @classmethod
     def yellow(cls, text: str) -> str:
         return cls.YELLOW + text + cls.ENDC
 
@@ -122,12 +127,16 @@ class Commit:
     subject: str
     labeled: bool = False
 
-    def format(self) -> str:
+    def format(self, pr: Optional["PullRequest"] = None) -> str:
         pieces = [
             Color.yellow(self.hash),
             Color.cyan(self.relative_time),
         ]
-        local_branches = [b for b in self.branches if not b.startswith("origin/")]
+        local_branches = [
+            b
+            for b in self.branches
+            if not b.startswith("origin/") and not b.startswith("refs/")
+        ]
         if local_branches:
             branches = ", ".join(
                 [
@@ -136,6 +145,8 @@ class Commit:
                 ]
             )
             pieces.append(Color.yellow("(") + Color.green(branches) + Color.yellow(")"))
+        if pr is not None:
+            pieces.append(pr.status_colored_number)
         pieces.append(self.subject)
         return " ".join(pieces)
 
@@ -547,6 +558,7 @@ class PullRequest:
         is_draft: bool,
         repo_name: str,
         target_branch: str,
+        state: str,
     ):
         match = PR_TITLE_RE.match(title)
         assert match
@@ -559,6 +571,7 @@ class PullRequest:
         self.repo_name = repo_name
         self.is_draft = is_draft
         self.target_branch = target_branch
+        self.state = state  # OPEN|CLOSED|MERGED
         self._pending_gh_edit = PendingGHEdit()
 
     def __hash__(self) -> int:
@@ -573,6 +586,29 @@ class PullRequest:
         if self._pending_gh_edit.is_dirty:
             self._pending_gh_edit.flush(self.url)
 
+    @property
+    def is_merged(self) -> bool:
+        return self.state == "MERGED"
+
+    @property
+    def is_open(self) -> bool:
+        return self.state == "OPEN"
+
+    @property
+    def is_closed(self) -> bool:
+        return self.state == "CLOSED"
+
+    @property
+    def status_colored_number(self) -> str:
+        if self.is_open:
+            return Color.blue(f"#{self.number}")
+        elif self.is_closed:
+            return Color.red(f"#{self.number}")
+        elif self.is_merged:
+            return Color.purple(f"#{self.number}")
+        else:
+            return f"#{self.number}"
+
     @classmethod
     def from_ref(cls, num_or_branch: Union[str, int]) -> "PullRequest":
         return cls.from_json(
@@ -582,7 +618,7 @@ class PullRequest:
                     "view",
                     str(num_or_branch),
                     "--json",
-                    "title,body,number,url,isDraft,headRepository,baseRefName",
+                    "title,body,number,url,isDraft,headRepository,baseRefName,state",
                 )
             )
         )
@@ -597,6 +633,7 @@ class PullRequest:
             data["isDraft"],
             data["headRepository"]["name"],
             data["baseRefName"],
+            data["state"],
         )
 
     def parse_prev_prs_from_table(self) -> List["PullRequest"]:
@@ -1044,7 +1081,11 @@ class Repo:
                 "--author",
                 "@me",
                 "--json",
-                "title,body,number,headRefName,url,isDraft,headRepository,baseRefName",
+                "title,body,number,headRefName,url,isDraft,headRepository,baseRefName,state",
+                "--limit",
+                "100",
+                "--state",
+                "all",
                 silence=True,
             )
         )
@@ -1119,6 +1160,7 @@ class BranchInfo:
     name: str
     commits: List[Commit]
     contains: List[str]
+    pr: Optional[PullRequest]
 
     @property
     def tip(self) -> Commit:
@@ -1163,9 +1205,14 @@ class TmpLocalInfo:
         return cls(stack, mbc, commits, contains)
 
     def branches(self) -> Iterator[BranchInfo]:
-        for branch in self.stack.branches():
+        for diff in self.stack.local_diffs():
+            branch = diff.branch
+            assert branch is not None
             yield BranchInfo(
-                branch.name, self.commits[branch.name], self.contains[branch.name]
+                branch.name,
+                self.commits[branch.name],
+                self.contains[branch.name],
+                diff.pr,
             )
 
     def __bool__(self) -> bool:
@@ -1255,6 +1302,7 @@ The commits are displayed as a git log graph, with the following icons:
 
     def run(self, show_all_commits: bool = False) -> None:
         repo = Repo.load()
+        repo.load_prs()
         local_info: List[TmpLocalInfo] = []
         for stack in repo.stacks:
             info = TmpLocalInfo.from_stack(stack)
@@ -1296,7 +1344,7 @@ The commits are displayed as a git log graph, with the following icons:
                     if show_all_commits:
                         for commit in branch.commits[:-1]:
                             lines.append(f"{indent}{star} {commit.format()}")
-                    lines.append(f"{indent}{star} {branch.tip.format()}")
+                    lines.append(f"{indent}{star} {branch.tip.format(branch.pr)}")
                     last_branch = branch
 
         lines.reverse()
