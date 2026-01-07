@@ -673,7 +673,12 @@ class PullRequest:
             if pr_str.startswith(">"):
                 return ret
             elif pr_str.startswith("#"):
-                ret.append(PullRequest.from_ref(int(pr_str[1:])))
+                # Use the PR number to create a URL by modifying this PR's URL.
+                # We can't just pass the number because we can get here from traversing
+                # a stack across repos, so the gh client may be in the context of
+                # another repo.
+                pr_url = re.sub(r"\d+$", pr_str[1:], self.url)
+                ret.append(PullRequest.from_ref(pr_url))
             else:
                 # Parse the URL out of a markdown link
                 match = re.match(r"^\[[^\]]*\]\((.*)\)$", pr_str)
@@ -879,7 +884,7 @@ class Stack:
                 if pr is not None:
                     diff.pr = pr
 
-        # gh pr list doesn't show closed PRs, so we need to fetch them separately
+        # Explicitly fetch any PRs that were past the N that we fetch with `gh pr list`
         any_new_prs = True
         while any_new_prs:
             any_new_prs = False
