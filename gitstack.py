@@ -1672,6 +1672,38 @@ class RebaseCommand(Command):
         stack.rebase(target)
 
 
+class InteractiveRebaseCommand(Command):
+    @property
+    def name(self) -> str:
+        return "rewrite"
+
+    @property
+    def help(self) -> str:
+        return "Interactive rebase the current branch in the stack"
+
+    def invoke(self, args: argparse.Namespace) -> None:
+        self.run()
+
+    def run(self) -> None:
+        repo = Repo.load()
+        stack = repo.get_stack_for_ref()
+        if stack is None:
+            print_err("No stack found")
+            sys.exit(1)
+        branch_by_name = {b.name: b for b in stack.branches()}
+        current_branch = branch_by_name.get(git.current_branch() or "")
+        if current_branch is None:
+            print_err("Could not find current branch")
+            sys.exit(1)
+        os.execl(
+            shutil.which("git") or "git",
+            "git",
+            "rebase",
+            "-i",
+            "@" + current_branch.num_commits * "^",
+        )
+
+
 class PushCommand(Command):
     @property
     def name(self) -> str:
@@ -2146,20 +2178,21 @@ def main() -> None:
 
     subparsers = parser.add_subparsers(dest="cmd", required=False)
     stack_commands: List[Command] = [
-        ListCommand(),
         CleanCommand(),
         CreateCommand(),
-        RestackCommand(),
-        RebaseCommand(),
-        PrevCommand(),
-        NextCommand(),
-        TipCommand(),
-        FirstCommand(),
-        PushCommand(),
-        PullRequestCommand(),
-        UnpublishCommand(),
         DeleteCommand(),
+        FirstCommand(),
+        InteractiveRebaseCommand(),
+        ListCommand(),
+        NextCommand(),
+        PrevCommand(),
         PullCommand(),
+        PullRequestCommand(),
+        PushCommand(),
+        RebaseCommand(),
+        RestackCommand(),
+        TipCommand(),
+        UnpublishCommand(),
         UpdateCommand(),
     ]
     for cmd in stack_commands:
