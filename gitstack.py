@@ -1135,7 +1135,8 @@ class Stack:
 
         last_branch = None
         num_lines = len(lines)
-        for branch_num, diff in enumerate(diffs):
+        branch_num = 0
+        for diff in diffs:
             branch = diff.branch
             if branch is None:
                 assert diff.pr is not None
@@ -1165,6 +1166,7 @@ class Stack:
                     f"{indent}{star} {diff.pr.status_colored_number} {diff.pr.title}"
                 )
             last_branch = branch
+            branch_num += 1
         # If we didn't add any commits to the lines, we should remove the fork we added
         if len(lines) == num_lines:
             lines.pop()
