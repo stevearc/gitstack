@@ -92,30 +92,47 @@ class Color:
     RED = "\033[91m"
     ENDC = "\033[0m"
     BOLD = "\033[1m"
+    DIM = "\033[2m"
 
     @classmethod
-    def red(cls, text: str) -> str:
-        return cls.RED + text + cls.ENDC
+    def dim(cls, text: str) -> str:
+        return cls.DIM + text + cls.ENDC
 
     @classmethod
-    def green(cls, text: str) -> str:
-        return cls.GREEN + text + cls.ENDC
+    def _color(cls, code: str, text: str, dim: bool = False, bold: bool = False) -> str:
+        pieces = []
+        if dim:
+            pieces.append(cls.DIM)
+        if bold:
+            pieces.append(cls.BOLD)
+        pieces.append(code)
+        pieces.append(text)
+        pieces.append(cls.ENDC)
+        return "".join(pieces)
 
     @classmethod
-    def blue(cls, text: str) -> str:
-        return cls.BLUE + text + cls.ENDC
+    def red(cls, text: str, dim: bool = False, bold: bool = False) -> str:
+        return cls._color(cls.RED, text, dim=dim, bold=bold)
 
     @classmethod
-    def purple(cls, text: str) -> str:
-        return cls.PURPLE + text + cls.ENDC
+    def green(cls, text: str, dim: bool = False, bold: bool = False) -> str:
+        return cls._color(cls.GREEN, text, dim=dim, bold=bold)
 
     @classmethod
-    def yellow(cls, text: str) -> str:
-        return cls.YELLOW + text + cls.ENDC
+    def blue(cls, text: str, dim: bool = False, bold: bool = False) -> str:
+        return cls._color(cls.BLUE, text, dim=dim, bold=bold)
 
     @classmethod
-    def cyan(cls, text: str) -> str:
-        return cls.CYAN + text + cls.ENDC
+    def purple(cls, text: str, dim: bool = False, bold: bool = False) -> str:
+        return cls._color(cls.PURPLE, text, dim=dim, bold=bold)
+
+    @classmethod
+    def yellow(cls, text: str, dim: bool = False, bold: bool = False) -> str:
+        return cls._color(cls.YELLOW, text, dim=dim, bold=bold)
+
+    @classmethod
+    def cyan(cls, text: str, dim: bool = False, bold: bool = False) -> str:
+        return cls._color(cls.CYAN, text, dim=dim, bold=bold)
 
 
 @total_ordering
@@ -128,10 +145,10 @@ class Commit:
     subject: str
     labeled: bool = False
 
-    def format(self, pr: Optional["PullRequest"] = None) -> str:
+    def format(self, pr: Optional["PullRequest"] = None, dim: bool = False) -> str:
         pieces = [
-            Color.yellow(self.hash),
-            Color.cyan(self.relative_time),
+            Color.yellow(self.hash, dim=dim),
+            Color.cyan(self.relative_time, dim=dim),
         ]
         local_branches = [
             b
@@ -145,10 +162,17 @@ class Commit:
                     for b in local_branches
                 ]
             )
-            pieces.append(Color.yellow("(") + Color.green(branches) + Color.yellow(")"))
+            pieces.append(
+                Color.yellow("(", dim=dim)
+                + Color.green(branches, dim=dim)
+                + Color.yellow(")", dim=dim)
+            )
         if pr is not None:
             pieces.append(pr.status_colored_number)
-        pieces.append(self.subject)
+        if dim:
+            pieces.append(Color.dim(self.subject))
+        else:
+            pieces.append(self.subject)
         return " ".join(pieces)
 
     def __lt__(self, other: Any) -> bool:
@@ -1158,7 +1182,7 @@ class Stack:
 
             if show_all_commits:
                 for commit in branch.commits[:-1]:
-                    lines.append(f"{indent}{star} {commit.format()}")
+                    lines.append(f"{indent}{star} {commit.format(dim=True)}")
             if branch.commits:
                 lines.append(f"{indent}{star} {branch.commits[-1].format(diff.pr)}")
             elif diff.pr is not None:
