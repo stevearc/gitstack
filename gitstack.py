@@ -145,7 +145,12 @@ class Commit:
     subject: str
     labeled: bool = False
 
-    def format(self, pr: Optional["PullRequest"] = None, dim: bool = False) -> str:
+    def format(
+        self,
+        pr: Optional["PullRequest"] = None,
+        dim: bool = False,
+        use_pr_title: bool = False,
+    ) -> str:
         pieces = [
             Color.yellow(self.hash, dim=dim),
             Color.cyan(self.relative_time, dim=dim),
@@ -169,10 +174,15 @@ class Commit:
             )
         if pr is not None:
             pieces.append(pr.status_colored_number)
-        if dim:
-            pieces.append(Color.dim(self.subject))
+
+        if use_pr_title and pr is not None:
+            title = pr.title
         else:
-            pieces.append(self.subject)
+            title = self.subject
+        if dim:
+            pieces.append(Color.dim(title))
+        else:
+            pieces.append(title)
         return " ".join(pieces)
 
     def __lt__(self, other: Any) -> bool:
@@ -1222,7 +1232,9 @@ class Stack:
                 for commit in branch.commits[:-1]:
                     lines.append(f"{indent}{star} {commit.format(dim=True)}")
             if branch.commits:
-                lines.append(f"{indent}{star} {branch.commits[-1].format(diff.pr)}")
+                lines.append(
+                    f"{indent}{star} {branch.commits[-1].format(diff.pr, use_pr_title=not show_all_commits)}"
+                )
             elif diff.pr is not None:
                 lines.append(
                     f"{indent}{star} {diff.pr.status_colored_number} {diff.pr.title}"
