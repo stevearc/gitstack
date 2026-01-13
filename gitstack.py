@@ -72,7 +72,7 @@ def has_gh() -> bool:
 def git_lines(*args, **kwargs) -> List[str]:
     ret = run("git", *args, **kwargs)
     if ret:
-        return ret.splitlines()
+        return [l for l in ret.splitlines() if l != ""]
     else:
         return []
 
@@ -322,12 +322,43 @@ class git:
         run("git", "branch", flag, branch)
 
     @staticmethod
+    def set_branch_ref(branch: str, ref: str) -> None:
+        """Forcibly set the branch to point to the ref"""
+        git.exit_if_dirty()
+        cur: Optional[str] = git.get_current_ref()
+        if cur != branch:
+            git.switch_branch(branch)
+        else:
+            cur = None
+        run("git", "reset", "--hard", ref)
+        if cur is not None:
+            git.switch_branch(cur)
+
+    @staticmethod
     def rebase_onto(new_root: str, old_root: str, tip: str) -> None:
         run("git", "rebase", "--onto", new_root, old_root, tip)
 
     @staticmethod
+    def smart_rebase_onto(new_root: str, old_root: str, tip: str) -> None:
+        if git.diff_files(new_root, tip):
+            git.rebase_onto(new_root, old_root, tip)
+        else:
+            git.set_branch_ref(tip, new_root)
+
+    @staticmethod
     def rebase(new_root: str, tip: str) -> None:
         run("git", "rebase", new_root, tip)
+
+    @staticmethod
+    def smart_rebase(new_root: str, tip: str) -> None:
+        if git.diff_files(new_root, tip):
+            git.rebase(new_root, tip)
+        else:
+            git.set_branch_ref(tip, new_root)
+
+    @staticmethod
+    def diff_files(ref1: str, ref2: str) -> List[str]:
+        return git_lines("diff", "--name-only", ref1, ref2)
 
     @staticmethod
     def delete_remote_branch(branch: str, allow_failure: bool = True) -> None:
@@ -1023,47 +1054,47 @@ class Stack:
 
     def rebase(self, target: Optional[str] = None):
         original_branch = git.current_branch()
-
         branches = self.branches()
 
         if target is not None:
-            git.rebase(target, branches[0].name)
+            branch = branches[0]
+            print_err("Rebasing", branch.name, "->", target)
+            git.smart_rebase_onto(target, branch.root + "^", branch.name)
             rebase_included_self = git.get_current_ref() == git.rev_parse(target)
             # Update our label to point to the branch we rebased on top of UNLESS the
             # rebase swallowed the current branch (because all commits were already in
             # the target) OR the target is main/master/etc
             if not git.is_main_branch(target) and not rebase_included_self:
-                diff = next((d for d in self._diffs if d.branch == branches[0]), None)
+                diff = next((d for d in self._diffs if d.branch == branch), None)
                 assert diff is not None
+                print_err("Stacking", branch.name, "on top of", target)
                 diff.add_label(DiffLabel(prev_branch=target))
 
         prev_branch = branches[0].name
         for branch in branches[1:]:
             if branch.name not in git.get_child_branches(prev_branch):
-                git.rebase_onto(prev_branch, branch.root + "^", branch.name)
+                print_err("Rebasing", branch.name, "->", prev_branch)
+                git.smart_rebase_onto(prev_branch, branch.root + "^", branch.name)
             prev_branch = branch.name
-
-        if original_branch is not None:
-            git.switch_branch(original_branch)
 
         # delete branches that have been merged
         if target is not None and git.is_main_branch(target):
-            cur = git.current_branch()
-            git.switch_branch(git.get_main_branch())
+            git.switch_branch(target)
             for branch in branches:
-                if git.merge_base(branch.name) == git.rev_parse(branch.name):
+                if git.merge_base(branch.name, target) == git.rev_parse(branch.name):
                     print_err("Deleting merged branch", branch.name)
                     git.delete_branch(branch.name, force=True)
-                    if cur == branch.name:
-                        cur = None
+                    if original_branch == branch.name:
+                        original_branch = None
                 else:
                     # If the branch we were on was merged,
                     # switch to the next unmerged branch in the stack
-                    if cur is None:
-                        cur = branch.name
+                    if original_branch is None:
+                        original_branch = branch.name
                     break
-            if cur is not None and git.rev_parse(cur) is not None:
-                git.switch_branch(cur)
+
+        if original_branch is not None:
+            git.switch_branch(original_branch)
 
     def split_diff_by_commits(self, diff: Diff) -> None:
         assert diff in self._diffs
@@ -1648,8 +1679,10 @@ class CleanCommand(Command):
             if dry_run:
                 print("Would delete branch", b)
             elif b.startswith("origin/"):
+                print("Deleting", b)
                 git.delete_remote_branch(b[7:])
             else:
+                print("Deleting", b)
                 git.delete_branch(b, force=True)
 
         if not to_delete:

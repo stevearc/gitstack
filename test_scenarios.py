@@ -38,11 +38,15 @@ def run_cmd(args: argparse.Namespace) -> None:
     elif args.test_cmd == "rebase_cleanup":
         # rebasing a partially merged stack onto master deletes the merged branches
         git.create_branch(test_branch_name)
+        add_test_file("test1.txt")
         git.commit("Test commit 1")
+        add_test_file("test2.txt")
         git.commit("Test commit 2")
+        add_test_file("test3.txt")
         git.commit("Test commit 3")
         stack = CreateCommand().run(split=True)
         git.switch_branch(git.get_main_branch())
+        git.commit("Test commit diverge on master")
         run("git", "merge", test_branch_name + "-1")
         git.switch_branch(stack.branches()[0].name)
         stack.rebase(git.get_main_branch())
