@@ -44,7 +44,7 @@ def run_cmd(args: argparse.Namespace) -> None:
         stack = CreateCommand().run(split=True)
         git.switch_branch(git.get_main_branch())
         run("git", "merge", test_branch_name + "-1")
-        git.switch_branch(stack.branches()[-1].name)
+        git.switch_branch(stack.branches()[0].name)
         stack.rebase(git.get_main_branch())
     elif args.test_cmd == "merge_squash":
         git.create_branch(test_branch_name)

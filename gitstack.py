@@ -1052,8 +1052,15 @@ class Stack:
             git.switch_branch(git.get_main_branch())
             for branch in branches:
                 if git.merge_base(branch.name) == git.rev_parse(branch.name):
+                    print_err("Deleting merged branch", branch.name)
                     git.delete_branch(branch.name, force=True)
+                    if cur == branch.name:
+                        cur = None
                 else:
+                    # If the branch we were on was merged,
+                    # switch to the next unmerged branch in the stack
+                    if cur is None:
+                        cur = branch.name
                     break
             if cur is not None and git.rev_parse(cur) is not None:
                 git.switch_branch(cur)
