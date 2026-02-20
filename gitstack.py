@@ -1730,6 +1730,31 @@ class RestackCommand(Command):
             sys.exit(1)
         stack.rebase()
 
+class ShowBaseCommand(Command):
+    @property
+    def name(self) -> str:
+        return "show-base"
+
+    @property
+    def help(self) -> str:
+        return "Print the git ref that is the base of the current branch"
+
+    def invoke(self, args: argparse.Namespace) -> None:
+        self.run()
+
+    def run(self) -> None:
+        repo = Repo.load()
+        stack = repo.get_stack_for_ref()
+        if stack is None:
+            print_err("No stack found")
+            sys.exit(1)
+        branch_by_name = {b.name: b for b in stack.branches()}
+        current_branch = branch_by_name.get(git.current_branch() or "")
+        if current_branch is None:
+            print_err("Could not find current branch")
+            sys.exit(1)
+        print(git.rev_parse("@" + current_branch.num_commits * "^"))
+
 
 class RebaseCommand(Command):
     @property
@@ -2274,6 +2299,7 @@ def main() -> None:
         PushCommand(),
         RebaseCommand(),
         RestackCommand(),
+        ShowBaseCommand(),
         TipCommand(),
         UnpublishCommand(),
         UpdateCommand(),
