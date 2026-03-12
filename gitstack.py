@@ -335,7 +335,7 @@ class git:
     def set_branch_ref(branch: str, ref: str) -> None:
         """Forcibly set the branch to point to the ref"""
         git.exit_if_dirty()
-        cur: Optional[str] = git.get_current_ref()
+        cur: Optional[str] = git.current_branch() or git.get_current_ref()
         if cur != branch:
             git.switch_branch(branch)
         else:
@@ -444,7 +444,7 @@ class git:
 
         if label.prev_branch is not None:
             lines.append("prev-branch: " + label.prev_branch)
-        if label.prev_pr is not None:
+        elif label.prev_pr is not None:
             lines.append("prev-pr: " + label.prev_pr.as_str())
         new_message = "\n".join(lines)
 
@@ -1730,6 +1730,7 @@ class RestackCommand(Command):
             sys.exit(1)
         stack.rebase()
 
+
 class ShowBaseCommand(Command):
     @property
     def name(self) -> str:
@@ -1756,6 +1757,45 @@ class ShowBaseCommand(Command):
         print(git.rev_parse("@" + current_branch.num_commits * "^"))
 
 
+class GraftCommand(Command):
+    @property
+    def name(self) -> str:
+        return "graft"
+
+    @property
+    def help(self) -> str:
+        return "Rebase and stack the current branch onto another branch"
+
+    def add_args(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("target", help="Target branch to rebase onto")
+
+    def invoke(self, args: argparse.Namespace) -> None:
+        self.run(args.target)
+
+    def run(self, target: str) -> None:
+        git.exit_if_dirty()
+        current = git.current_branch()
+        if current is None:
+            print_err("Not on a branch")
+            sys.exit(1)
+        repo = Repo.load()
+        stack = repo.get_stack_for_ref()
+        diff = stack and stack.get_diff_for_ref()
+        if diff is None:
+            branches = git.list_branches()
+            tips = {v: k for k, v in branches.items()}
+            diff = Diff.from_branch(current, tips)
+        assert diff.branch is not None
+        git.smart_rebase_onto(target, diff.branch.root + "^", diff.branch.name)
+        rebase_included_self = git.get_current_ref() == git.rev_parse(target)
+        if rebase_included_self:
+            return
+        if git.is_main_branch(target):
+            diff.add_label(DiffLabel())
+        else:
+            diff.add_label(DiffLabel(prev_branch=target))
+
+
 class RebaseCommand(Command):
     @property
     def name(self) -> str:
@@ -1772,6 +1812,7 @@ class RebaseCommand(Command):
         self.run(args.target)
 
     def run(self, target: str) -> None:
+        git.exit_if_dirty()
         repo = Repo.load()
         stack = repo.get_stack_for_ref()
         if stack is None:
@@ -2290,6 +2331,7 @@ def main() -> None:
         CreateCommand(),
         DeleteCommand(),
         FirstCommand(),
+        GraftCommand(),
         InteractiveRebaseCommand(),
         ListCommand(),
         NextCommand(),
