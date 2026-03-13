@@ -388,8 +388,9 @@ class git:
 
     @staticmethod
     def is_main_branch(branch: str) -> bool:
-        # HACK to also handle master-passing-tests
-        return strip_remote(branch).startswith(git.get_main_branch())
+        branch = strip_remote(branch)
+        # HACK to also handle green branches
+        return branch == git.get_main_branch() or branch.startswith("green-")
 
     @staticmethod
     def get_origin_main() -> str:
