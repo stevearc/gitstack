@@ -1768,19 +1768,35 @@ class GraftCommand(Command):
 
     def add_args(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("target", help="Target branch to rebase onto")
+        parser.add_argument(
+            "-p",
+            "--pull-request",
+            metavar="PR",
+            help="Stack on top of this pull request (can be a number, or a link to a PR in another repo)",
+            required=False,
+        )
 
     def invoke(self, args: argparse.Namespace) -> None:
-        self.run(args.target)
+        self.run(args.target, pull_request=args.pull_request)
 
-    def run(self, target: str) -> None:
+    def run(self, target: str, pull_request: Optional[str] = None) -> None:
         git.exit_if_dirty()
         current = git.current_branch()
         if current is None:
             print_err("Not on a branch")
             sys.exit(1)
+
+        if pull_request is not None and not git.is_main_branch(target):
+            print_err(
+                f"Warning: rebasing onto '{target}' which is not the main branch, "
+                f"but labeling with PR {pull_request}."
+            )
+            if input("Continue? [y/n] ").lower() != "y":
+                return
+
         repo = Repo.load()
         stack = repo.get_stack_for_ref()
-        diff = stack and stack.get_diff_for_ref()
+        diff = stack.get_diff_for_ref() if stack is not None else None
         if diff is None:
             branches = git.list_branches()
             tips = {v: k for k, v in branches.items()}
@@ -1790,7 +1806,10 @@ class GraftCommand(Command):
         rebase_included_self = git.get_current_ref() == git.rev_parse(target)
         if rebase_included_self:
             return
-        if git.is_main_branch(target):
+        if pull_request is not None:
+            pr = PullRequestLink.from_str(pull_request)
+            diff.add_label(DiffLabel(prev_pr=pr))
+        elif git.is_main_branch(target):
             diff.add_label(DiffLabel())
         else:
             diff.add_label(DiffLabel(prev_branch=target))
