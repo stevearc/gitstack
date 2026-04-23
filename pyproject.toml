@@ -1,0 +1,10 @@
+[tool.ruff]
+target-version = "py314"
+
+[tool.ruff.lint]
+extend-select = ["I"]
+ignore = [
+    "E402",  # module imports not at top of file
+    "E741",  # ambiguous variable name
+    "F841",  # unused local variable (pylint W0612 is also disabled)
+]
